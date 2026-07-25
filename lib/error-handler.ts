@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 type RouteHandler = (
   req: NextRequest,
-  context?: { params: Record<string, string> }
+  context?: { params: Promise<Record<string, string>> }
 ) => Promise<NextResponse>;
 
 /**
@@ -20,7 +20,7 @@ export function withApiHandler(handler: RouteHandler): RouteHandler {
     } catch (error) {
       if (error instanceof ZodError) {
         const fieldErrors: Record<string, string[]> = {};
-        error.errors.forEach((err) => {
+        (error as any).errors.forEach((err: any) => {
           const field = err.path.join(".");
           if (!fieldErrors[field]) fieldErrors[field] = [];
           fieldErrors[field].push(err.message);
