@@ -64,6 +64,16 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+#### Skip seeding — use the bundled sample database
+
+A ready-made SQLite database with the same seed data is included at [`docs/sample.db`](docs/sample.db). To use it instead of running `npm run seed`:
+
+```bash
+npm install
+cp docs/sample.db aizaheels.db
+npm run dev
+```
+
 ### Production build
 
 ```bash

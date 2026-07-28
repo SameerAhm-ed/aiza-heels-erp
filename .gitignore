@@ -42,6 +42,7 @@ next-env.d.ts
 
 # local sqlite db + generated uploads
 *.db
+!/docs/sample.db
 *.db-shm
 *.db-wal
 /public/uploads/*
