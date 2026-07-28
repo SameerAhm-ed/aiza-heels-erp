@@ -1,19 +1,25 @@
-import connectDB from "@/lib/db";
-import { ExpenseModel } from "@/models/expense.model";
-import { ExpenseCategoryModel } from "@/models/expense-category.model";
-import mongoose, { Types } from "mongoose";
+import { db } from "@/lib/db";
+import { expenses, expenseCategories } from "@/lib/schema";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { toPaisa, roundCurrency } from "@/lib/currency";
 import { businessError } from "@/lib/error-handler";
 import { ExpenseCreateInput } from "@/utils/zod-schemas";
 import { createLedgerEntry } from "./ledger.service";
 import { parseKarachiDate } from "@/lib/dates";
 
+/** Drizzle transaction type — same shape as `db` for query purposes. */
+type DrizzleTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+function withId<T extends { id: number }>(row: T) {
+  return { ...row, _id: String(row.id) };
+}
+
 /**
  * Record an expense.
  *
  * Transaction steps:
  * 1. Validate category exists
- * 2. Save Expense document
+ * 2. Insert expense row
  * 3. Create Expense Ledger entry
  * 4. Create Cash/Bank Ledger entry (debit = cash went out)
  * 5. Commit
@@ -22,69 +28,58 @@ export async function createExpense(
   input: ExpenseCreateInput,
   attachmentPath?: string
 ) {
-  await connectDB();
+  const categoryIdNum = Number(input.categoryId);
 
-  const category = await ExpenseCategoryModel.findById(input.categoryId);
+  const [category] = await db
+    .select()
+    .from(expenseCategories)
+    .where(eq(expenseCategories.id, categoryIdNum));
   if (!category) businessError("Expense category not found");
 
   const amountPaisa = toPaisa(roundCurrency(input.amount));
   const expenseDate = parseKarachiDate(input.date);
 
-  const session = await mongoose.startSession();
-  let savedExpense;
-
-  try {
-    session.startTransaction();
-
-    const [expense] = await ExpenseModel.create(
-      [
-        {
-          categoryId: new Types.ObjectId(input.categoryId),
-          description: input.description,
-          amount: amountPaisa,
-          date: expenseDate,
-          paymentMethod: input.paymentMethod,
-          attachmentPath: attachmentPath ?? null,
-        },
-      ],
-      { session }
-    );
-
-    savedExpense = expense;
+  const savedExpense = await db.transaction(async (tx: DrizzleTx) => {
+    const [expense] = await tx
+      .insert(expenses)
+      .values({
+        categoryId: categoryIdNum,
+        description: input.description,
+        amount: amountPaisa,
+        date: expenseDate,
+        paymentMethod: input.paymentMethod,
+        attachmentPath: attachmentPath ?? null,
+      })
+      .returning();
 
     // Expense ledger entry
     await createLedgerEntry({
       date: expenseDate,
       referenceType: "expense",
-      referenceId: expense._id,
+      referenceId: expense.id,
       debit: amountPaisa,
       credit: 0,
       partyType: "expense",
       notes: `${category!.name}: ${input.description}`,
-      session,
+      tx,
     });
 
     // Cash/Bank ledger: debit (cash went out)
     await createLedgerEntry({
       date: expenseDate,
       referenceType: "expense",
-      referenceId: expense._id,
+      referenceId: expense.id,
       debit: amountPaisa,
       credit: 0,
       partyType: "cash",
       notes: `${input.paymentMethod === "bank" ? "Bank" : "Cash"} — ${category!.name}`,
-      session,
+      tx,
     });
 
-    await session.commitTransaction();
-  } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    await session.endSession();
-  }
+    return expense;
+  });
 
-  return savedExpense;
+  return withId(savedExpense);
 }
 
 export async function listExpenses(params: {
@@ -94,28 +89,87 @@ export async function listExpenses(params: {
   dateFrom?: Date;
   dateTo?: Date;
 }) {
-  await connectDB();
   const { page = 1, limit = 20, categoryId, dateFrom, dateTo } = params;
-  const query: Record<string, unknown> = {};
-  if (categoryId) query.categoryId = new Types.ObjectId(categoryId);
-  if (dateFrom || dateTo) {
-    query.date = {};
-    if (dateFrom) (query.date as Record<string, unknown>).$gte = dateFrom;
-    if (dateTo) (query.date as Record<string, unknown>).$lte = dateTo;
-  }
-  const [expenses, total] = await Promise.all([
-    ExpenseModel.find(query)
-      .populate("categoryId", "name")
-      .sort({ date: -1 })
-      .skip((page - 1) * limit)
+
+  const conditions = [];
+  if (categoryId) conditions.push(eq(expenses.categoryId, Number(categoryId)));
+  if (dateFrom) conditions.push(gte(expenses.date, dateFrom));
+  if (dateTo) conditions.push(lte(expenses.date, dateTo));
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [rows, totalRows] = await Promise.all([
+    db
+      .select({
+        id: expenses.id,
+        categoryId: expenses.categoryId,
+        description: expenses.description,
+        amount: expenses.amount,
+        date: expenses.date,
+        paymentMethod: expenses.paymentMethod,
+        attachmentPath: expenses.attachmentPath,
+        createdAt: expenses.createdAt,
+        updatedAt: expenses.updatedAt,
+        categoryName: expenseCategories.name,
+      })
+      .from(expenses)
+      .innerJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
+      .where(whereClause)
+      .orderBy(desc(expenses.date))
       .limit(limit)
-      .lean(),
-    ExpenseModel.countDocuments(query),
+      .offset((page - 1) * limit),
+    db.select().from(expenses).where(whereClause),
   ]);
-  return { expenses, total, page, limit };
+
+  const expensesList = rows.map((row) =>
+    withId({
+      id: row.id,
+      categoryId: row.categoryId,
+      description: row.description,
+      amount: row.amount,
+      date: row.date,
+      paymentMethod: row.paymentMethod,
+      attachmentPath: row.attachmentPath,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      category: { _id: String(row.categoryId), name: row.categoryName },
+    })
+  );
+
+  return { expenses: expensesList, total: totalRows.length, page, limit };
 }
 
 export async function getExpenseById(id: string) {
-  await connectDB();
-  return ExpenseModel.findById(id).populate("categoryId").lean();
+  const idNum = Number(id);
+
+  const [row] = await db
+    .select({
+      id: expenses.id,
+      categoryId: expenses.categoryId,
+      description: expenses.description,
+      amount: expenses.amount,
+      date: expenses.date,
+      paymentMethod: expenses.paymentMethod,
+      attachmentPath: expenses.attachmentPath,
+      createdAt: expenses.createdAt,
+      updatedAt: expenses.updatedAt,
+      category: expenseCategories,
+    })
+    .from(expenses)
+    .innerJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
+    .where(eq(expenses.id, idNum));
+
+  if (!row) return null;
+
+  return withId({
+    id: row.id,
+    categoryId: row.categoryId,
+    description: row.description,
+    amount: row.amount,
+    date: row.date,
+    paymentMethod: row.paymentMethod,
+    attachmentPath: row.attachmentPath,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    category: withId(row.category),
+  });
 }

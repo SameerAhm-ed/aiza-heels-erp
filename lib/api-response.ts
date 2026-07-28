@@ -1,5 +1,16 @@
 import { NextResponse } from "next/server";
 
+/**
+ * All primary-key ids in this app are SQLite autoincrement integers passed
+ * through the URL as strings. Route handlers must validate the path param
+ * with this before handing it to `Number(id)` — otherwise a non-numeric id
+ * (e.g. "abc") produces `NaN`, which reaches the SQL driver as a literal
+ * "NaN" parameter and blows up as an unhandled 500 with the raw query text.
+ */
+export function isValidId(id: string | undefined | null): id is string {
+  return !!id && /^\d+$/.test(id);
+}
+
 /** Standard API response shape used across all route handlers */
 export interface ApiResponse<T = unknown> {
   success: boolean;

@@ -157,7 +157,12 @@ export default function NewExpensePage() {
                 }
               >
                 <SelectTrigger id="category">
-                  <SelectValue placeholder="Select Category" />
+                  <SelectValue placeholder="Select Category">
+                    {(val: string) =>
+                      categories.find((c) => c._id.toString() === val)?.name ??
+                      "Select Category"
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {categories.map((c) => (
@@ -224,7 +229,9 @@ export default function NewExpensePage() {
                 }
               >
                 <SelectTrigger id="paymentMethod">
-                  <SelectValue />
+                  <SelectValue>
+                    {(val: string) => (val === "bank" ? "Bank Account" : "Cash in Hand")}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cash">Cash in Hand</SelectItem>

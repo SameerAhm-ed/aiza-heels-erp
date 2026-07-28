@@ -145,7 +145,7 @@ export default function ProductsPage() {
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
             {row.model && <span>Model: {row.model}</span>}
             {row.material && <span>• {row.material}</span>}
-            <span>• Category: {row.category?.name || "General"}</span>
+            <span>• Category: {(row as any).categoryId?.name || "General"}</span>
           </div>
         </div>
       ),

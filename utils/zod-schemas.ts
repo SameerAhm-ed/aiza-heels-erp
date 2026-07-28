@@ -12,7 +12,8 @@ const paginationSchema = z.object({
   dateTo: z.string().optional(),
 });
 
-const objectIdSchema = z.string().min(24).max(24);
+// Numeric SQLite autoincrement id, passed through the app as a string.
+const objectIdSchema = z.coerce.string().regex(/^\d+$/, "Invalid id");
 
 const paymentMethodSchema = z.enum(["cash", "bank"]);
 

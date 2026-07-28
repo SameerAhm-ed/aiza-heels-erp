@@ -1,20 +1,19 @@
 import { NextRequest } from "next/server";
-import { withApiHandler, businessError } from "@/lib/error-handler";
-import { successResponse, createdResponse, notFoundResponse } from "@/lib/api-response";
-import { expenseCategoryCreateSchema, expenseCategoryUpdateSchema } from "@/utils/zod-schemas";
-import connectDB from "@/lib/db";
-import { ExpenseCategoryModel } from "@/models/expense-category.model";
+import { withApiHandler } from "@/lib/error-handler";
+import { successResponse, createdResponse } from "@/lib/api-response";
+import { expenseCategoryCreateSchema } from "@/utils/zod-schemas";
+import { db } from "@/lib/db";
+import { expenseCategories } from "@/lib/schema";
+import { asc } from "drizzle-orm";
 
 export const GET = withApiHandler(async () => {
-  await connectDB();
-  const categories = await ExpenseCategoryModel.find({}).sort({ name: 1 }).lean();
-  return successResponse(categories);
+  const rows = await db.select().from(expenseCategories).orderBy(asc(expenseCategories.name));
+  return successResponse(rows.map((row) => ({ ...row, _id: String(row.id) })));
 });
 
 export const POST = withApiHandler(async (req: NextRequest) => {
-  await connectDB();
   const body = await req.json();
   const validated = expenseCategoryCreateSchema.parse(body);
-  const category = await ExpenseCategoryModel.create(validated);
-  return createdResponse(category);
+  const [category] = await db.insert(expenseCategories).values(validated).returning();
+  return createdResponse({ ...category, _id: String(category.id) });
 });

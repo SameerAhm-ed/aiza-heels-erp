@@ -1,108 +1,124 @@
-import mongoose from "mongoose";
 import dotenv from "dotenv";
 import path from "path";
 
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env") });
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/heel-erp?replicaSet=rs0";
-
 async function seed() {
-  console.log("Connecting to MongoDB for seeding:", MONGODB_URI);
-  await mongoose.connect(MONGODB_URI);
+  const { db } = await import("../lib/db");
+  const {
+    customers: customersTable,
+    suppliers: suppliersTable,
+    categories: categoriesTable,
+    expenseCategories: expenseCategoriesTable,
+    products: productsTable,
+    productVariants: productVariantsTable,
+    ledgerEntries,
+    stockMovements,
+    sales,
+    saleItems,
+    purchases,
+    purchaseItems,
+    expenses,
+    invoiceCounters,
+  } = await import("../lib/schema");
 
-  // Dynamic model imports
-  const { CustomerModel } = await import("../models/customer.model");
-  const { SupplierModel } = await import("../models/supplier.model");
-  const { CategoryModel } = await import("../models/category.model");
-  const { ExpenseCategoryModel } = await import("../models/expense-category.model");
-  const { ProductModel } = await import("../models/product.model");
   const { createSale } = await import("../services/sale.service");
   const { createPurchase } = await import("../services/purchase.service");
   const { createExpense } = await import("../services/expense.service");
-  const { LedgerEntryModel } = await import("../models/ledger-entry.model");
-  const { StockMovementModel } = await import("../models/stock-movement.model");
-  const { SaleModel } = await import("../models/sale.model");
-  const { PurchaseModel } = await import("../models/purchase.model");
-  const { ExpenseModel } = await import("../models/expense.model");
-  const { InvoiceCounterModel } = await import("../models/invoice-counter.model");
 
-  console.log("Clearing existing database collections...");
-  await CustomerModel.deleteMany({});
-  await SupplierModel.deleteMany({});
-  await CategoryModel.deleteMany({});
-  await ExpenseCategoryModel.deleteMany({});
-  await ProductModel.deleteMany({});
-  await LedgerEntryModel.deleteMany({});
-  await StockMovementModel.deleteMany({});
-  await SaleModel.deleteMany({});
-  await PurchaseModel.deleteMany({});
-  await ExpenseModel.deleteMany({});
-  await InvoiceCounterModel.deleteMany({});
+  console.log("Clearing existing database tables...");
+  await db.delete(saleItems);
+  await db.delete(purchaseItems);
+  await db.delete(ledgerEntries);
+  await db.delete(stockMovements);
+  await db.delete(sales);
+  await db.delete(purchases);
+  await db.delete(expenses);
+  await db.delete(invoiceCounters);
+  await db.delete(productVariantsTable);
+  await db.delete(productsTable);
+  await db.delete(customersTable);
+  await db.delete(suppliersTable);
+  await db.delete(categoriesTable);
+  await db.delete(expenseCategoriesTable);
 
   console.log("Seeding Product Categories...");
-  const categories = await CategoryModel.create([
-    { name: "Stiletto Heels", description: "Pencil & high heels for formal wear" },
-    { name: "Wedge Heels", description: "Comfortable platform heel soles" },
-    { name: "Block Heels", description: "Sturdy square chunky heels" },
-    { name: "Kitten Heels", description: "Low 1.5 to 2 inch casual heels" },
-  ]);
+  const categories = await db
+    .insert(categoriesTable)
+    .values([
+      { name: "Stiletto Heels", description: "Pencil & high heels for formal wear" },
+      { name: "Wedge Heels", description: "Comfortable platform heel soles" },
+      { name: "Block Heels", description: "Sturdy square chunky heels" },
+      { name: "Kitten Heels", description: "Low 1.5 to 2 inch casual heels" },
+    ])
+    .returning();
 
   console.log("Seeding Expense Categories...");
-  const expenseCategories = await ExpenseCategoryModel.create([
-    { name: "Factory Overhead", description: "Electricity, machinery maintenance" },
-    { name: "Staff Salaries", description: "Craftsman & artisan wages" },
-    { name: "Raw Leather & Materials", description: "Leather, soles, glue, straps" },
-    { name: "Transport & Logistics", description: "Goods delivery & freight" },
-    { name: "Utilities & Office", description: "Internet, tea, office supplies" },
-  ]);
+  const expenseCategories = await db
+    .insert(expenseCategoriesTable)
+    .values([
+      { name: "Factory Overhead", description: "Electricity, machinery maintenance" },
+      { name: "Staff Salaries", description: "Craftsman & artisan wages" },
+      { name: "Raw Leather & Materials", description: "Leather, soles, glue, straps" },
+      { name: "Transport & Logistics", description: "Goods delivery & freight" },
+      { name: "Utilities & Office", description: "Internet, tea, office supplies" },
+    ])
+    .returning();
 
   console.log("Seeding Customers...");
-  const customers = await CustomerModel.create([
-    {
-      name: "Metro Shoes Wholesale",
-      phone: "03001234567",
-      whatsappNumber: "03001234567",
-      address: "Shop #45, Liberty Market, Lahore",
-      openingBalance: 500000, // 5,000 PKR opening balance
-    },
-    {
-      name: "Stylo Traders Karachi",
-      phone: "03219876543",
-      whatsappNumber: "03219876543",
-      address: "Tariq Road Market, Karachi",
-      openingBalance: 0,
-    },
-    {
-      name: "Bata Distributor Rawalpindi",
-      phone: "03335554433",
-      whatsappNumber: "03335554433",
-      address: "Raja Bazaar, Rawalpindi",
-      openingBalance: 1200000,
-    },
-  ]);
+  const customers = await db
+    .insert(customersTable)
+    .values([
+      {
+        name: "Metro Shoes Wholesale",
+        phone: "03001234567",
+        whatsappNumber: "03001234567",
+        address: "Shop #45, Liberty Market, Lahore",
+        openingBalance: 500000, // 5,000 PKR opening balance
+      },
+      {
+        name: "Stylo Traders Karachi",
+        phone: "03219876543",
+        whatsappNumber: "03219876543",
+        address: "Tariq Road Market, Karachi",
+        openingBalance: 0,
+      },
+      {
+        name: "Bata Distributor Rawalpindi",
+        phone: "03335554433",
+        whatsappNumber: "03335554433",
+        address: "Raja Bazaar, Rawalpindi",
+        openingBalance: 1200000,
+      },
+    ])
+    .returning();
 
   console.log("Seeding Suppliers...");
-  const suppliers = await SupplierModel.create([
-    {
-      name: "Master Sole & Heel Works",
-      phone: "03017778899",
-      address: "Plot #12, Industrial Estate, Gujranwala",
-      openingBalance: 300000, // 3,000 PKR we owe
-    },
-    {
-      name: "Italian Leather Import Co",
-      phone: "03024445566",
-      address: "Sialkot Tannery Zone",
-      openingBalance: 0,
-    },
-  ]);
+  const suppliers = await db
+    .insert(suppliersTable)
+    .values([
+      {
+        name: "Master Sole & Heel Works",
+        phone: "03017778899",
+        address: "Plot #12, Industrial Estate, Gujranwala",
+        openingBalance: 300000, // 3,000 PKR we owe
+      },
+      {
+        name: "Italian Leather Import Co",
+        phone: "03024445566",
+        address: "Sialkot Tannery Zone",
+        openingBalance: 0,
+      },
+    ])
+    .returning();
 
   console.log("Seeding Products with Variants...");
-  const products = await ProductModel.create([
+
+  const productSeeds = [
     {
       name: "Velvet Ankle Strap Stiletto",
-      categoryId: categories[0]._id,
+      categoryId: categories[0].id,
       model: "Pencil 3.5-inch",
       material: "Velvet & Synthetic Sole",
       unit: "pair",
@@ -128,7 +144,7 @@ async function seed() {
     },
     {
       name: "Classic Cork Wedge Heel",
-      categoryId: categories[1]._id,
+      categoryId: categories[1].id,
       model: "Platform 2.5-inch",
       material: "Cork & Patent Leather",
       unit: "pair",
@@ -154,7 +170,7 @@ async function seed() {
     },
     {
       name: "Chunky Block Party Heel",
-      categoryId: categories[2]._id,
+      categoryId: categories[2].id,
       model: "Block 3-inch",
       material: "Suede Leather",
       unit: "pair",
@@ -170,14 +186,24 @@ async function seed() {
         },
       ],
     },
-  ]);
+  ];
+
+  const products = [];
+  for (const seedProduct of productSeeds) {
+    const { variants, ...productFields } = seedProduct;
+    const [product] = await db.insert(productsTable).values(productFields).returning();
+    await db
+      .insert(productVariantsTable)
+      .values(variants.map((v) => ({ ...v, productId: product.id })));
+    products.push(product);
+  }
 
   console.log("Seeding Sales Invoices across last 60 days...");
   await createSale({
-    customerId: customers[0]._id.toString(),
+    customerId: String(customers[0].id),
     items: [
       {
-        productId: products[0]._id.toString(),
+        productId: String(products[0].id),
         variantSku: "ST-VEL-BLK-37",
         qty: 5,
         unitPrice: 2800,
@@ -192,10 +218,10 @@ async function seed() {
   });
 
   await createSale({
-    customerId: customers[1]._id.toString(),
+    customerId: String(customers[1].id),
     items: [
       {
-        productId: products[1]._id.toString(),
+        productId: String(products[1].id),
         variantSku: "WD-CRK-BRN-37",
         qty: 8,
         unitPrice: 3200,
@@ -211,10 +237,10 @@ async function seed() {
 
   console.log("Seeding Purchases from suppliers...");
   await createPurchase({
-    supplierId: suppliers[0]._id.toString(),
+    supplierId: String(suppliers[0].id),
     items: [
       {
-        productId: products[0]._id.toString(),
+        productId: String(products[0].id),
         variantSku: "ST-VEL-BLK-37",
         qty: 20,
         unitCost: 1500,
@@ -227,7 +253,7 @@ async function seed() {
 
   console.log("Seeding Factory Expenses...");
   await createExpense({
-    categoryId: expenseCategories[0]._id.toString(),
+    categoryId: String(expenseCategories[0].id),
     description: "Factory Electricity Bill - July 2026",
     amount: 45000,
     date: new Date().toISOString().split("T")[0],
@@ -235,19 +261,18 @@ async function seed() {
   });
 
   await createExpense({
-    categoryId: expenseCategories[1]._id.toString(),
+    categoryId: String(expenseCategories[1].id),
     description: "Weekly Craftsmen Wages",
     amount: 60000,
     date: new Date().toISOString().split("T")[0],
     paymentMethod: "cash",
   });
 
-  console.log("✅ Seed completed successfully!");
-  await mongoose.disconnect();
+  console.log("Seed completed successfully!");
   process.exit(0);
 }
 
 seed().catch((err) => {
-  console.error("❌ Seed script error:", err);
+  console.error("Seed script error:", err);
   process.exit(1);
 });

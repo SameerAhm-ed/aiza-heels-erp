@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { withApiHandler } from "@/lib/error-handler";
-import { successResponse, notFoundResponse } from "@/lib/api-response";
+import { successResponse, notFoundResponse , isValidId} from "@/lib/api-response";
 import { supplierUpdateSchema } from "@/utils/zod-schemas";
 import {
   getSupplierById,
@@ -13,7 +13,7 @@ import { getLedgerEntries } from "@/services/ledger.service";
 export const GET = withApiHandler(
   async (_req: NextRequest, context?: { params: Promise<Record<string, string>> }) => {
     const { id } = await (context?.params ?? Promise.resolve({ id: "" }));
-    if (!id) return notFoundResponse("Supplier");
+    if (!isValidId(id)) return notFoundResponse("Supplier");
 
     const supplier = await getSupplierById(id);
     if (!supplier) return notFoundResponse("Supplier");
@@ -36,7 +36,7 @@ export const GET = withApiHandler(
 export const PUT = withApiHandler(
   async (req: NextRequest, context?: { params: Promise<Record<string, string>> }) => {
     const { id } = await (context?.params ?? Promise.resolve({ id: "" }));
-    if (!id) return notFoundResponse("Supplier");
+    if (!isValidId(id)) return notFoundResponse("Supplier");
 
     const body = await req.json();
     const validated = supplierUpdateSchema.parse(body);
@@ -48,7 +48,7 @@ export const PUT = withApiHandler(
 export const DELETE = withApiHandler(
   async (_req: NextRequest, context?: { params: Promise<Record<string, string>> }) => {
     const { id } = await (context?.params ?? Promise.resolve({ id: "" }));
-    if (!id) return notFoundResponse("Supplier");
+    if (!isValidId(id)) return notFoundResponse("Supplier");
 
     const deleted = await softDeleteSupplier(id);
     return successResponse(deleted);

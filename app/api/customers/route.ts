@@ -11,6 +11,7 @@ export const GET = withApiHandler(async (req: NextRequest) => {
   const search = searchParams.get("search") || undefined;
   const sortBy = searchParams.get("sortBy") || "createdAt";
   const sortOrder = (searchParams.get("sortOrder") as "asc" | "desc") || "desc";
+  const includeInactive = searchParams.get("includeInactive") === "true";
 
   const result = await listCustomers({
     page,
@@ -18,6 +19,7 @@ export const GET = withApiHandler(async (req: NextRequest) => {
     search,
     sortBy,
     sortOrder,
+    includeInactive,
   });
 
   return paginatedResponse(result.customers, page, limit, result.total);

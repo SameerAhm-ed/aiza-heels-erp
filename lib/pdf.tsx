@@ -141,7 +141,7 @@ export const InvoiceDocument: React.FC<InvoicePdfProps> = ({ sale, customer }) =
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.companyTitle}>HeelCraft ERP</Text>
+          <Text style={styles.companyTitle}>Aiza Heels</Text>
           <Text style={styles.companySubtitle}>
             Premium Women's Heel Manufacturing & Distribution
           </Text>
@@ -234,7 +234,7 @@ export const InvoiceDocument: React.FC<InvoicePdfProps> = ({ sale, customer }) =
 
       {/* Footer */}
       <View style={styles.footer}>
-        <Text>Thank you for doing business with HeelCraft Manufacturing!</Text>
+        <Text>Thank you for doing business with Aiza Heels!</Text>
         <Text style={{ marginTop: 2 }}>Computer generated invoice. No signature required.</Text>
       </View>
     </Page>

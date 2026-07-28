@@ -14,7 +14,8 @@ import {
 import { formatPaisaAsPKR } from "@/lib/currency";
 import { formatDate } from "@/lib/dates";
 import { LedgerEntry, Customer, Supplier } from "@/types";
-import { BookOpen, Users, Building2, Wallet, Receipt } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { BookOpen, Users, Building2, Wallet, Receipt, Printer, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -74,12 +75,53 @@ export default function LedgerPage() {
     fetchLedger();
   }, [fetchLedger]);
 
+  const selectedParty =
+    activeTab === "customer"
+      ? customers.find((c) => c._id.toString() === selectedPartyId)
+      : activeTab === "supplier"
+      ? suppliers.find((s) => s._id.toString() === selectedPartyId)
+      : undefined;
+
+  const canPrint =
+    (activeTab === "customer" || activeTab === "supplier") &&
+    selectedPartyId !== "all" &&
+    !!selectedParty;
+
+  const statementHref =
+    canPrint && selectedParty
+      ? `/ledger-statement?partyType=${activeTab}&party=${selectedParty._id}`
+      : null;
+
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Ledger Accounts"
-        description="Unified financial ledger views for Customer Receivables, Supplier Payables, Cash in Hand, and Expenses."
-      />
+      <div className="flex items-start justify-between gap-4">
+        <PageHeader
+          title="Ledger Accounts"
+          description="Unified financial ledger views for Customer Receivables, Supplier Payables, Cash in Hand, and Expenses."
+        />
+        {statementHref && (
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => window.open(statementHref, "_blank")}
+            >
+              <Eye className="h-4 w-4" />
+              View Statement
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => window.open(`${statementHref}&autoprint=1`, "_blank")}
+            >
+              <Printer className="h-4 w-4" />
+              Print Statement
+            </Button>
+          </div>
+        )}
+      </div>
 
       <Tabs
         value={activeTab}
@@ -116,7 +158,15 @@ export default function LedgerPage() {
             </span>
             <Select value={selectedPartyId} onValueChange={(val) => setSelectedPartyId(val ?? "all")}>
               <SelectTrigger className="h-8 text-xs bg-card">
-                <SelectValue placeholder="All Accounts" />
+                <SelectValue placeholder="All Accounts">
+                  {(value: string) =>
+                    value === "all"
+                      ? "All Accounts Combined"
+                      : (activeTab === "customer" ? customers : suppliers).find(
+                          (p) => p._id.toString() === value
+                        )?.name ?? "All Accounts Combined"
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Accounts Combined</SelectItem>
@@ -146,6 +196,7 @@ export default function LedgerPage() {
                     <th className="p-3 text-left">Date</th>
                     <th className="p-3 text-left font-sans">Reference Type</th>
                     <th className="p-3 text-left font-sans">Details / Notes</th>
+                    <th className="p-3 text-left font-sans">Products &amp; Qty</th>
                     <th className="p-3 text-right">Debit (₨)</th>
                     <th className="p-3 text-right">Credit (₨)</th>
                     <th className="p-3 text-right">Running Balance (₨)</th>
@@ -155,14 +206,14 @@ export default function LedgerPage() {
                   {isLoading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <tr key={i}>
-                        <td colSpan={6} className="p-3">
+                        <td colSpan={7} className="p-3">
                           <Skeleton className="h-5 w-full" />
                         </td>
                       </tr>
                     ))
                   ) : entries.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-8 text-center text-muted-foreground font-sans">
+                      <td colSpan={7} className="p-8 text-center text-muted-foreground font-sans">
                         No ledger entries found matching filters.
                       </td>
                     </tr>
@@ -176,6 +227,22 @@ export default function LedgerPage() {
                           {entry.referenceType}
                         </td>
                         <td className="p-3 font-sans text-xs">{entry.notes || "—"}</td>
+                        <td className="p-3 font-sans text-xs">
+                          {entry.items && entry.items.length > 0 ? (
+                            <ul className="space-y-0.5">
+                              {entry.items.map((item, i) => (
+                                <li key={i}>
+                                  {item.productName}{" "}
+                                  <span className="text-muted-foreground">
+                                    ({item.variantSku}) × {item.qty}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="p-3 text-right text-destructive">
                           {entry.debit > 0 ? formatPaisaAsPKR(entry.debit) : "—"}
                         </td>

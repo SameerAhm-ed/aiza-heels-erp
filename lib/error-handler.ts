@@ -19,8 +19,13 @@ export function withApiHandler(handler: RouteHandler): RouteHandler {
       return await handler(req, context);
     } catch (error) {
       if (error instanceof ZodError) {
+        // Zod v4 renamed ZodError.errors -> ZodError.issues; `.errors` no longer
+        // exists, so this branch previously threw on every single validation
+        // failure (TypeError: Cannot read properties of undefined (reading
+        // 'forEach')), turning what should be a clean 400 into an uncaught 500
+        // with an empty body for every invalid request across the whole app.
         const fieldErrors: Record<string, string[]> = {};
-        (error as any).errors.forEach((err: any) => {
+        error.issues.forEach((err) => {
           const field = err.path.join(".");
           if (!fieldErrors[field]) fieldErrors[field] = [];
           fieldErrors[field].push(err.message);
@@ -33,6 +38,25 @@ export function withApiHandler(handler: RouteHandler): RouteHandler {
         if (error.message.startsWith("BUSINESS_ERROR:")) {
           return errorResponse(error.message.replace("BUSINESS_ERROR: ", ""), 400);
         }
+
+        // SQLite unique-constraint violations (duplicate name/SKU/invoice number, etc.)
+        // bubble up from the driver as generic Errors — detect them here instead of
+        // leaking the raw SQL statement + params to the client as a 500.
+        const causeMessage = (error as { cause?: { message?: string } }).cause?.message ?? "";
+        const combinedMessage = `${error.message} ${causeMessage}`;
+        const uniqueMatch = combinedMessage.match(
+          /UNIQUE constraint failed: (\w+)\.(\w+)/
+        );
+        if (uniqueMatch) {
+          const [, table, column] = uniqueMatch;
+          const friendlyField = column.replace(/_/g, " ");
+          console.error("[API Error] Unique constraint violation", table, column);
+          return errorResponse(
+            `A record with this ${friendlyField} already exists`,
+            409
+          );
+        }
+
         console.error("[API Error]", error.message, error.stack);
         return errorResponse(error.message, 500);
       }

@@ -204,7 +204,7 @@ export default function SaleDetailPage({
             </div>
             <div>
               <h1 className="text-2xl font-bold text-primary tracking-tight">
-                HeelCraft ERP
+                Aiza Heels
               </h1>
               <p className="text-xs text-muted-foreground">
                 Women's Heel Manufacturing & Wholesale

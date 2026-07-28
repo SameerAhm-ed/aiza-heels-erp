@@ -1,41 +1,62 @@
 import { NextRequest } from "next/server";
 import { withApiHandler } from "@/lib/error-handler";
 import { successResponse } from "@/lib/api-response";
-import connectDB from "@/lib/db";
-import { SettingsModel } from "@/models/settings.model";
+import { db } from "@/lib/db";
+import { settings } from "@/lib/schema";
+import { eq } from "drizzle-orm";
 import { settingsUpdateSchema } from "@/utils/zod-schemas";
 import { isWhatsAppConfigured } from "@/lib/whatsapp";
 
 export const GET = withApiHandler(async () => {
-  await connectDB();
-  let settings = await SettingsModel.findById("main").lean();
+  let [row] = await db.select().from(settings).where(eq(settings.id, 1));
 
-  if (!settings) {
-    settings = await SettingsModel.create({
-      _id: "main",
-      appName: "HeelCraft ERP",
-      currency: "PKR",
-      taxRate: 0,
-      lowStockThreshold: 5,
-    });
+  if (!row) {
+    [row] = await db
+      .insert(settings)
+      .values({
+        id: 1,
+        appName: "Aiza Heels",
+        currency: "PKR",
+        taxRate: 0,
+        lowStockThreshold: 5,
+      })
+      .returning();
   }
 
   return successResponse({
-    ...settings,
+    ...row,
+    _id: String(row.id),
     isWhatsAppConfigured: isWhatsAppConfigured(),
     whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
   });
 });
 
 export const PUT = withApiHandler(async (req: NextRequest) => {
-  await connectDB();
   const body = await req.json();
   const validated = settingsUpdateSchema.parse(body);
 
-  const updated = await SettingsModel.findByIdAndUpdate("main", validated, {
-    new: true,
-    upsert: true,
-  }).lean();
+  const existing = await db.select().from(settings).where(eq(settings.id, 1));
 
-  return successResponse(updated);
+  let updated;
+  if (existing.length === 0) {
+    [updated] = await db
+      .insert(settings)
+      .values({
+        id: 1,
+        appName: "Aiza Heels",
+        currency: "PKR",
+        taxRate: 0,
+        lowStockThreshold: 5,
+        ...validated,
+      })
+      .returning();
+  } else {
+    [updated] = await db
+      .update(settings)
+      .set({ ...validated, updatedAt: new Date() })
+      .where(eq(settings.id, 1))
+      .returning();
+  }
+
+  return successResponse({ ...updated, _id: String(updated.id) });
 });

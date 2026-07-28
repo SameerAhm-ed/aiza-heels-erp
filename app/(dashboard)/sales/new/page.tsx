@@ -230,7 +230,12 @@ function NewSalePageInner() {
                 onValueChange={(val) => setSelectedCustomerId(val ?? "")}
               >
                 <SelectTrigger id="customer">
-                  <SelectValue placeholder="Select Customer" />
+                  <SelectValue placeholder="Select Customer">
+                    {(val: string) => {
+                      const c = customers.find((c) => c._id.toString() === val);
+                      return c ? `${c.name} (${c.phone})` : "Select Customer";
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {customers.map((c) => (
@@ -249,7 +254,9 @@ function NewSalePageInner() {
                 onValueChange={(val) => setPaymentMethod((val as "cash" | "bank") ?? "cash")}
               >
                 <SelectTrigger id="paymentMethod">
-                  <SelectValue />
+                  <SelectValue>
+                    {(val: string) => (val === "bank" ? "Bank Transfer" : "Cash in Hand")}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cash">Cash in Hand</SelectItem>
@@ -302,7 +309,12 @@ function NewSalePageInner() {
                       onValueChange={(val) => handleProductSelect(idx, val ?? "")}
                     >
                       <SelectTrigger className="h-9 text-xs">
-                        <SelectValue placeholder="Select Product" />
+                        <SelectValue placeholder="Select Product">
+                          {(val: string) =>
+                            products.find((p) => p._id.toString() === val)?.name ??
+                            "Select Product"
+                          }
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {products.map((p) => (
@@ -323,7 +335,12 @@ function NewSalePageInner() {
                       disabled={!item.productId}
                     >
                       <SelectTrigger className="h-9 text-xs font-mono">
-                        <SelectValue placeholder="Select Variant" />
+                        <SelectValue placeholder="Select Variant">
+                          {(val: string) => {
+                            const v = selectedProduct?.variants.find((v) => v.sku === val);
+                            return v ? `${v.sku} (${v.size}/${v.color})` : "Select Variant";
+                          }}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {selectedProduct?.variants.map((v) => (

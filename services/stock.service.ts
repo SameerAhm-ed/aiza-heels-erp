@@ -1,74 +1,77 @@
-import connectDB from "@/lib/db";
-import { ProductModel } from "@/models/product.model";
-import { StockMovementModel } from "@/models/stock-movement.model";
-import { ClientSession, Types } from "mongoose";
+import { db } from "@/lib/db";
+import { products, productVariants, stockMovements } from "@/lib/schema";
+import { and, eq } from "drizzle-orm";
 import { StockMovementType } from "@/types";
 import { businessError } from "@/lib/error-handler";
 
+/** Drizzle transaction type — same shape as `db` for query purposes. */
+type DrizzleTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 interface AdjustStockParams {
-  productId: Types.ObjectId | string;
+  productId: number | string;
   variantSku: string;
   delta: number; // positive = add stock, negative = remove stock
   type: StockMovementType;
-  referenceId?: Types.ObjectId | string;
+  referenceId?: number | string;
   reason?: string;
-  session: ClientSession;
+  tx: DrizzleTx;
 }
 
 /**
  * Adjust stock for a single product variant and write the audit movement record.
  * Throws a business error if the adjustment would result in negative stock (for sales).
  *
- * This MUST be called inside an active MongoDB transaction session.
+ * This MUST be called with the `tx` from an active `db.transaction()` block so it
+ * participates in the caller's transaction.
  */
 export async function adjustStock(params: AdjustStockParams): Promise<void> {
-  await connectDB();
+  const { productId, variantSku, delta, type, referenceId, reason, tx } = params;
+  const productIdNum = Number(productId);
 
-  const { productId, variantSku, delta, type, referenceId, reason, session } = params;
+  const [variant] = await tx
+    .select()
+    .from(productVariants)
+    .where(
+      and(
+        eq(productVariants.productId, productIdNum),
+        eq(productVariants.sku, variantSku)
+      )
+    );
 
-  // Load the product within the transaction to read current stock (session ensures isolation)
-  const product = await ProductModel.findOne(
-    { _id: productId, "variants.sku": variantSku },
-    { "variants.$": 1 },
-    { session }
-  );
-
-  if (!product || !product.variants?.[0]) {
+  if (!variant) {
     businessError(`Product variant ${variantSku} not found`);
   }
 
-  const variant = product.variants[0];
-  const newStock = variant.currentStock + delta;
+  const newStock = variant!.currentStock + delta;
 
   // Block negative stock — sale creation must pre-validate before calling this
   if (newStock < 0) {
     businessError(
-      `Insufficient stock for ${variantSku}: available ${variant.currentStock}, requested ${Math.abs(delta)}`
+      `Insufficient stock for ${variantSku}: available ${variant!.currentStock}, requested ${Math.abs(delta)}`
     );
   }
 
   // Update the variant's stock counter
-  await ProductModel.updateOne(
-    { _id: productId, "variants.sku": variantSku },
-    { $set: { "variants.$.currentStock": newStock } },
-    { session }
-  );
+  await tx
+    .update(productVariants)
+    .set({ currentStock: newStock })
+    .where(
+      and(
+        eq(productVariants.productId, productIdNum),
+        eq(productVariants.sku, variantSku)
+      )
+    );
 
   // Write immutable stock movement audit record
-  await StockMovementModel.create(
-    [
-      {
-        productId,
-        variantSku,
-        type,
-        delta,
-        resultingBalance: newStock,
-        referenceId: referenceId ?? null,
-        reason: reason ?? null,
-      },
-    ],
-    { session }
-  );
+  await tx.insert(stockMovements).values({
+    productId: productIdNum,
+    variantSku,
+    type,
+    delta,
+    resultingBalance: newStock,
+    referenceId: referenceId !== undefined ? Number(referenceId) : null,
+    reason: reason ?? null,
+  });
 }
 
 /**
@@ -78,25 +81,32 @@ export async function adjustStock(params: AdjustStockParams): Promise<void> {
 export async function validateStockAvailability(
   items: Array<{ productId: string; variantSku: string; qty: number }>
 ): Promise<void> {
-  await connectDB();
-
   const errors: string[] = [];
 
   for (const item of items) {
-    const product = await ProductModel.findOne(
-      { _id: item.productId, "variants.sku": item.variantSku },
-      { "variants.$": 1, name: 1 }
-    );
+    const productIdNum = Number(item.productId);
+    const [row] = await db
+      .select({
+        currentStock: productVariants.currentStock,
+        name: products.name,
+      })
+      .from(productVariants)
+      .innerJoin(products, eq(productVariants.productId, products.id))
+      .where(
+        and(
+          eq(productVariants.productId, productIdNum),
+          eq(productVariants.sku, item.variantSku)
+        )
+      );
 
-    if (!product || !product.variants?.[0]) {
+    if (!row) {
       errors.push(`Product variant ${item.variantSku} not found`);
       continue;
     }
 
-    const variant = product.variants[0];
-    if (variant.currentStock < item.qty) {
+    if (row.currentStock < item.qty) {
       errors.push(
-        `${product.name} (${item.variantSku}): need ${item.qty}, have ${variant.currentStock}`
+        `${row.name} (${item.variantSku}): need ${item.qty}, have ${row.currentStock}`
       );
     }
   }

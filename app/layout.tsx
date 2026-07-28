@@ -7,8 +7,8 @@ import { Toaster } from "@/components/ui/sonner";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "HeelCraft ERP — Heel Manufacturing Management",
-  description: "Complete Business Management System for Women's Heel Manufacturing",
+  title: "Aiza Heels — Heel Manufacturing Management",
+  description: "Complete Business Management System for Aiza Heels, a women's heel manufacturing company",
 };
 
 export default function RootLayout({

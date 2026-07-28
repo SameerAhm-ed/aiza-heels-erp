@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { Settings as SettingsIcon, MessageSquare, CheckCircle, XCircle, ShieldCheck } from "lucide-react";
 
 export default function SettingsPage() {
-  const [appName, setAppName] = useState("HeelCraft ERP");
+  const [appName, setAppName] = useState("Aiza Heels");
   const [taxRate, setTaxRate] = useState(0);
   const [lowStockThreshold, setLowStockThreshold] = useState(5);
   const [isWhatsAppConfigured, setIsWhatsAppConfigured] = useState(false);
@@ -24,7 +24,7 @@ export default function SettingsPage() {
         const res = await fetch("/api/settings");
         const json = await res.json();
         if (json.success) {
-          setAppName(json.data.appName || "HeelCraft ERP");
+          setAppName(json.data.appName || "Aiza Heels");
           setTaxRate(json.data.taxRate || 0);
           setLowStockThreshold(json.data.lowStockThreshold || 5);
           setIsWhatsAppConfigured(json.data.isWhatsAppConfigured || false);

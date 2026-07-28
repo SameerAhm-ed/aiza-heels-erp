@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { withApiHandler } from "@/lib/error-handler";
-import { successResponse, notFoundResponse } from "@/lib/api-response";
+import { successResponse, notFoundResponse , isValidId} from "@/lib/api-response";
 import { productUpdateSchema } from "@/utils/zod-schemas";
 import {
   getProductById,
@@ -12,7 +12,7 @@ import {
 export const GET = withApiHandler(
   async (req: NextRequest, context?: { params: Promise<Record<string, string>> }) => {
     const { id } = await (context?.params ?? Promise.resolve({ id: "" }));
-    if (!id) return notFoundResponse("Product");
+    if (!isValidId(id)) return notFoundResponse("Product");
 
     const product = await getProductById(id);
     if (!product) return notFoundResponse("Product");
@@ -30,7 +30,7 @@ export const GET = withApiHandler(
 export const PUT = withApiHandler(
   async (req: NextRequest, context?: { params: Promise<Record<string, string>> }) => {
     const { id } = await (context?.params ?? Promise.resolve({ id: "" }));
-    if (!id) return notFoundResponse("Product");
+    if (!isValidId(id)) return notFoundResponse("Product");
 
     const body = await req.json();
     const validated = productUpdateSchema.parse(body);
@@ -42,7 +42,7 @@ export const PUT = withApiHandler(
 export const DELETE = withApiHandler(
   async (_req: NextRequest, context?: { params: Promise<Record<string, string>> }) => {
     const { id } = await (context?.params ?? Promise.resolve({ id: "" }));
-    if (!id) return notFoundResponse("Product");
+    if (!isValidId(id)) return notFoundResponse("Product");
 
     const deleted = await softDeleteProduct(id);
     return successResponse(deleted);

@@ -54,7 +54,7 @@ export default function ExpensesPage() {
       header: "Category",
       cell: (row) => (
         <Badge variant="outline" className="font-medium text-xs">
-          {row.categoryId?.name || "General"}
+          {(row as any).category?.name ?? "General"}
         </Badge>
       ),
     },

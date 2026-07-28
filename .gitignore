@@ -39,3 +39,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local sqlite db + generated uploads
+*.db
+*.db-shm
+*.db-wal
+/public/uploads/*
+!/public/uploads/.gitkeep
+
+# throwaway QA/audit scripts and their output (not part of the app)
+/scripts/_*
+/screenshots/

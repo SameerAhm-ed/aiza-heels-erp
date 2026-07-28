@@ -1,16 +1,17 @@
 import { NextRequest } from "next/server";
 import { withApiHandler } from "@/lib/error-handler";
 import { successResponse } from "@/lib/api-response";
-import connectDB from "@/lib/db";
-import { LedgerEntryModel } from "@/models/ledger-entry.model";
+import { db } from "@/lib/db";
+import { ledgerEntries } from "@/lib/schema";
+import { and, eq, gte, lte, lt, sql } from "drizzle-orm";
 import { getKarachiDayStart, getKarachiDayEnd, parseKarachiDate } from "@/lib/dates";
 
 export const GET = withApiHandler(async (req: NextRequest) => {
-  await connectDB();
   const searchParams = req.nextUrl.searchParams;
 
   const dateFromStr = searchParams.get("dateFrom");
   const dateToStr = searchParams.get("dateTo");
+  // methodFilter kept for parity with previous signature (not currently applied to the cash ledger query)
   const methodFilter = searchParams.get("method") || "all"; // "cash", "bank", or "all"
 
   const now = new Date();
@@ -18,41 +19,32 @@ export const GET = withApiHandler(async (req: NextRequest) => {
   const dateTo = dateToStr ? new Date(`${dateToStr}T23:59:59+05:00`) : getKarachiDayEnd(now);
 
   // 1. Opening Balance: Sum of credits - debits BEFORE dateFrom on cash ledger
-  const openingAgg = await LedgerEntryModel.aggregate([
-    {
-      $match: {
-        partyType: "cash",
-        date: { $lt: dateFrom },
-      },
-    },
-    {
-      $group: {
-        _id: null,
-        totalCredit: { $sum: "$credit" },
-        totalDebit: { $sum: "$debit" },
-      },
-    },
-  ]);
+  const [openingAgg] = await db
+    .select({
+      totalCredit: sql<number>`coalesce(sum(${ledgerEntries.credit}), 0)`,
+      totalDebit: sql<number>`coalesce(sum(${ledgerEntries.debit}), 0)`,
+    })
+    .from(ledgerEntries)
+    .where(and(eq(ledgerEntries.partyType, "cash"), lt(ledgerEntries.date, dateFrom)));
 
-  const openingBalance =
-    (openingAgg[0]?.totalCredit ?? 0) - (openingAgg[0]?.totalDebit ?? 0);
+  const openingBalance = (openingAgg?.totalCredit ?? 0) - (openingAgg?.totalDebit ?? 0);
 
   // 2. Cash In & Cash Out during the selected period
-  const periodAgg = await LedgerEntryModel.aggregate([
-    {
-      $match: {
-        partyType: "cash",
-        date: { $gte: dateFrom, $lte: dateTo },
-      },
-    },
-    {
-      $group: {
-        _id: "$referenceType",
-        totalCredit: { $sum: "$credit" },
-        totalDebit: { $sum: "$debit" },
-      },
-    },
-  ]);
+  const periodAgg = await db
+    .select({
+      referenceType: ledgerEntries.referenceType,
+      totalCredit: sql<number>`coalesce(sum(${ledgerEntries.credit}), 0)`,
+      totalDebit: sql<number>`coalesce(sum(${ledgerEntries.debit}), 0)`,
+    })
+    .from(ledgerEntries)
+    .where(
+      and(
+        eq(ledgerEntries.partyType, "cash"),
+        gte(ledgerEntries.date, dateFrom),
+        lte(ledgerEntries.date, dateTo)
+      )
+    )
+    .groupBy(ledgerEntries.referenceType);
 
   let cashIn = 0;
   let cashOut = 0;
@@ -66,29 +58,23 @@ export const GET = withApiHandler(async (req: NextRequest) => {
 
   const closingBalance = openingBalance + cashIn - cashOut;
 
-  // 3. Breakdown by day within the period
-  const dailyBreakdown = await LedgerEntryModel.aggregate([
-    {
-      $match: {
-        partyType: "cash",
-        date: { $gte: dateFrom, $lte: dateTo },
-      },
-    },
-    {
-      $group: {
-        _id: {
-          $dateToString: {
-            format: "%Y-%m-%d",
-            date: "$date",
-            timezone: "Asia/Karachi",
-          },
-        },
-        inflow: { $sum: "$credit" },
-        outflow: { $sum: "$debit" },
-      },
-    },
-    { $sort: { _id: 1 } },
-  ]);
+  // 3. Breakdown by day within the period (grouped in Asia/Karachi time)
+  const dailyBreakdown = await db
+    .select({
+      day: sql<string>`strftime('%Y-%m-%d', ${ledgerEntries.date} / 1000, 'unixepoch', '+5 hours')`,
+      inflow: sql<number>`coalesce(sum(${ledgerEntries.credit}), 0)`,
+      outflow: sql<number>`coalesce(sum(${ledgerEntries.debit}), 0)`,
+    })
+    .from(ledgerEntries)
+    .where(
+      and(
+        eq(ledgerEntries.partyType, "cash"),
+        gte(ledgerEntries.date, dateFrom),
+        lte(ledgerEntries.date, dateTo)
+      )
+    )
+    .groupBy(sql`1`)
+    .orderBy(sql`1`);
 
   return successResponse({
     openingBalance,
@@ -96,7 +82,7 @@ export const GET = withApiHandler(async (req: NextRequest) => {
     cashOut,
     closingBalance,
     dailyBreakdown: dailyBreakdown.map((d) => ({
-      date: d._id,
+      date: d.day,
       cashIn: d.inflow,
       cashOut: d.outflow,
       net: d.inflow - d.outflow,

@@ -1,142 +1,237 @@
-import connectDB from "@/lib/db";
-import { SaleModel } from "@/models/sale.model";
-import { PurchaseModel } from "@/models/purchase.model";
-import { ExpenseModel } from "@/models/expense.model";
-import { ProductModel } from "@/models/product.model";
-import { getCustomerOutstandingBalances } from "./customer.service";
-import { getSupplierOutstandingBalances } from "./supplier.service";
-import { parseKarachiDate } from "@/lib/dates";
+import { db } from "@/lib/db";
+import {
+  sales,
+  saleItems,
+  expenses,
+  expenseCategories,
+  products,
+  productVariants,
+  customers,
+  categories,
+} from "@/lib/schema";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+
+function withId<T extends { id: number }>(row: T) {
+  return { ...row, _id: String(row.id) };
+}
 
 export async function getSalesReport(dateFrom: Date, dateTo: Date) {
-  await connectDB();
+  const rows = await db
+    .select({
+      id: sales.id,
+      invoiceNumber: sales.invoiceNumber,
+      customerId: sales.customerId,
+      subtotal: sales.subtotal,
+      discount: sales.discount,
+      tax: sales.tax,
+      grandTotal: sales.grandTotal,
+      paidAmount: sales.paidAmount,
+      remainingAmount: sales.remainingAmount,
+      paymentMethod: sales.paymentMethod,
+      status: sales.status,
+      notes: sales.notes,
+      pdfPath: sales.pdfPath,
+      createdAt: sales.createdAt,
+      updatedAt: sales.updatedAt,
+      customerName: customers.name,
+      customerPhone: customers.phone,
+    })
+    .from(sales)
+    .innerJoin(customers, eq(sales.customerId, customers.id))
+    .where(and(gte(sales.createdAt, dateFrom), lte(sales.createdAt, dateTo)))
+    .orderBy(desc(sales.createdAt));
 
-  const sales = await SaleModel.find({
-    createdAt: { $gte: dateFrom, $lte: dateTo },
-  })
-    .populate("customerId", "name phone")
-    .sort({ createdAt: -1 })
-    .lean();
+  const salesList = rows.map((row) =>
+    withId({
+      id: row.id,
+      invoiceNumber: row.invoiceNumber,
+      customerId: row.customerId,
+      subtotal: row.subtotal,
+      discount: row.discount,
+      tax: row.tax,
+      grandTotal: row.grandTotal,
+      paidAmount: row.paidAmount,
+      remainingAmount: row.remainingAmount,
+      paymentMethod: row.paymentMethod,
+      status: row.status,
+      notes: row.notes,
+      pdfPath: row.pdfPath,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      customer: { _id: String(row.customerId), name: row.customerName, phone: row.customerPhone },
+    })
+  );
 
-  const totalRevenue = sales.reduce((sum, s) => sum + s.grandTotal, 0);
-  const totalPaid = sales.reduce((sum, s) => sum + s.paidAmount, 0);
-  const totalRemaining = sales.reduce((sum, s) => sum + s.remainingAmount, 0);
+  const totalRevenue = salesList.reduce((sum, s) => sum + s.grandTotal, 0);
+  const totalPaid = salesList.reduce((sum, s) => sum + s.paidAmount, 0);
+  const totalRemaining = salesList.reduce((sum, s) => sum + s.remainingAmount, 0);
 
-  return { sales, totalRevenue, totalPaid, totalRemaining };
+  return { sales: salesList, totalRevenue, totalPaid, totalRemaining };
 }
 
 export async function getExpenseReport(dateFrom: Date, dateTo: Date, categoryId?: string) {
-  await connectDB();
+  const conditions = [gte(expenses.date, dateFrom), lte(expenses.date, dateTo)];
+  if (categoryId) conditions.push(eq(expenses.categoryId, Number(categoryId)));
 
-  const query: Record<string, unknown> = {
-    date: { $gte: dateFrom, $lte: dateTo },
-  };
-  if (categoryId) query.categoryId = categoryId;
+  const rows = await db
+    .select({
+      id: expenses.id,
+      categoryId: expenses.categoryId,
+      description: expenses.description,
+      amount: expenses.amount,
+      date: expenses.date,
+      paymentMethod: expenses.paymentMethod,
+      attachmentPath: expenses.attachmentPath,
+      createdAt: expenses.createdAt,
+      updatedAt: expenses.updatedAt,
+      categoryName: expenseCategories.name,
+    })
+    .from(expenses)
+    .innerJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
+    .where(and(...conditions))
+    .orderBy(desc(expenses.date));
 
-  const expenses = await ExpenseModel.find(query)
-    .populate("categoryId", "name")
-    .sort({ date: -1 })
-    .lean();
+  const expensesList = rows.map((row) =>
+    withId({
+      id: row.id,
+      categoryId: row.categoryId,
+      description: row.description,
+      amount: row.amount,
+      date: row.date,
+      paymentMethod: row.paymentMethod,
+      attachmentPath: row.attachmentPath,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      category: { _id: String(row.categoryId), name: row.categoryName },
+    })
+  );
 
-  const totalExpense = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const totalExpense = expensesList.reduce((sum, e) => sum + e.amount, 0);
 
-  return { expenses, totalExpense };
+  return { expenses: expensesList, totalExpense };
 }
 
 export async function getProfitReport(dateFrom: Date, dateTo: Date) {
-  await connectDB();
+  // 1. Sales revenue (grandTotal of all sales in range)
+  const [salesAgg] = await db
+    .select({
+      totalRevenue: sql<number>`coalesce(sum(${sales.grandTotal}), 0)`,
+    })
+    .from(sales)
+    .where(and(gte(sales.createdAt, dateFrom), lte(sales.createdAt, dateTo)));
 
-  // 1. Sales revenue & COGS snapshot sum
-  const salesAgg = await SaleModel.aggregate([
-    { $match: { createdAt: { $gte: dateFrom, $lte: dateTo } } },
-    { $unwind: "$items" },
-    {
-      $group: {
-        _id: null,
-        totalRevenue: { $sum: "$grandTotal" }, // grandTotal of sales
-        totalCOGS: { $sum: { $multiply: ["$items.costPrice", "$items.qty"] } },
-      },
-    },
-  ]);
+  // 2. COGS: sum(costPrice * qty) across all sale items whose parent sale is in range
+  const [cogsAgg] = await db
+    .select({
+      totalCOGS: sql<number>`coalesce(sum(${saleItems.costPrice} * ${saleItems.qty}), 0)`,
+    })
+    .from(saleItems)
+    .innerJoin(sales, eq(saleItems.saleId, sales.id))
+    .where(and(gte(sales.createdAt, dateFrom), lte(sales.createdAt, dateTo)));
 
-  // 2. Expenses total
-  const expenseAgg = await ExpenseModel.aggregate([
-    { $match: { date: { $gte: dateFrom, $lte: dateTo } } },
-    { $group: { _id: null, total: { $sum: "$amount" } } },
-  ]);
+  const [expenseAgg] = await db
+    .select({ total: sql<number>`coalesce(sum(${expenses.amount}), 0)` })
+    .from(expenses)
+    .where(and(gte(expenses.date, dateFrom), lte(expenses.date, dateTo)));
 
-  const revenue = salesAgg[0]?.totalRevenue ?? 0;
-  const cogs = salesAgg[0]?.totalCOGS ?? 0;
-  const expenses = expenseAgg[0]?.total ?? 0;
+  const revenue = salesAgg?.totalRevenue ?? 0;
+  const cogs = cogsAgg?.totalCOGS ?? 0;
+  const expensesTotal = expenseAgg?.total ?? 0;
   const grossProfit = revenue - cogs;
-  const netProfit = grossProfit - expenses;
+  const netProfit = grossProfit - expensesTotal;
 
   return {
     revenue,
     cogs,
-    expenses,
+    expenses: expensesTotal,
     grossProfit,
     netProfit,
   };
 }
 
 export async function getInventoryValuationReport() {
-  await connectDB();
+  const rows = await db
+    .select({
+      productId: products.id,
+      name: products.name,
+      categoryName: categories.name,
+      currentStock: productVariants.currentStock,
+      purchasePrice: productVariants.purchasePrice,
+    })
+    .from(products)
+    .innerJoin(categories, eq(products.categoryId, categories.id))
+    .leftJoin(productVariants, eq(productVariants.productId, products.id))
+    .where(eq(products.isActive, true));
 
-  const products = await ProductModel.find({ isActive: true })
-    .populate("categoryId", "name")
-    .lean();
+  // Group variant rows back up per product
+  const byProduct = new Map<
+    number,
+    { productId: number; name: string; categoryName: string; stockCount: number; valuationPaisa: number }
+  >();
 
-  let totalValuation = 0;
-  let totalStockCount = 0;
-
-  const items = products.map((p) => {
-    const pStock = p.variants.reduce((sum: number, v: any) => sum + v.currentStock, 0);
-    const pValuation = p.variants.reduce(
-      (sum: number, v: any) => sum + v.currentStock * v.purchasePrice,
-      0
-    );
-
-    totalStockCount += pStock;
-    totalValuation += pValuation;
-
-    return {
-      productId: p._id.toString(),
-      name: p.name,
-      categoryName: (p.categoryId as { name?: string })?.name || "General",
-      stockCount: pStock,
-      valuationPaisa: pValuation,
+  for (const row of rows) {
+    const entry = byProduct.get(row.productId) ?? {
+      productId: row.productId,
+      name: row.name,
+      categoryName: row.categoryName || "General",
+      stockCount: 0,
+      valuationPaisa: 0,
     };
-  });
+    if (row.currentStock != null) {
+      entry.stockCount += row.currentStock;
+      entry.valuationPaisa += row.currentStock * (row.purchasePrice ?? 0);
+    }
+    byProduct.set(row.productId, entry);
+  }
+
+  const items = Array.from(byProduct.values()).map((p) => ({
+    productId: String(p.productId),
+    name: p.name,
+    categoryName: p.categoryName,
+    stockCount: p.stockCount,
+    valuationPaisa: p.valuationPaisa,
+  }));
+
+  const totalStockCount = items.reduce((sum, i) => sum + i.stockCount, 0);
+  const totalValuation = items.reduce((sum, i) => sum + i.valuationPaisa, 0);
 
   return { items, totalStockCount, totalValuation };
 }
 
 export async function getTopSellingProducts(dateFrom: Date, dateTo: Date, limit = 10) {
-  await connectDB();
+  const rows = await db
+    .select({
+      variantSku: saleItems.variantSku,
+      productName: saleItems.productName,
+      size: saleItems.size,
+      color: saleItems.color,
+      qty: saleItems.qty,
+      lineTotal: saleItems.lineTotal,
+    })
+    .from(saleItems)
+    .innerJoin(sales, eq(saleItems.saleId, sales.id))
+    .where(and(gte(sales.createdAt, dateFrom), lte(sales.createdAt, dateTo)));
 
-  const result = await SaleModel.aggregate([
-    { $match: { createdAt: { $gte: dateFrom, $lte: dateTo } } },
-    { $unwind: "$items" },
-    {
-      $group: {
-        _id: "$items.variantSku",
-        productName: { $first: "$items.productName font" },
-        size: { $first: "$items.size" },
-        color: { $first: "$items.color" },
-        totalQty: { $sum: "$items.qty" },
-        totalRevenue: { $sum: "$items.lineTotal font" },
-      },
-    },
-    { $sort: { totalQty: -1 } },
-    { $limit: limit },
-  ]);
+  const byVariant = new Map<
+    string,
+    { variantSku: string; productName: string; size: string; color: string; totalQty: number; totalRevenue: number }
+  >();
 
-  return result.map((r) => ({
-    variantSku: r._id,
-    productName: r.productName || r._id,
-    size: r.size,
-    color: r.color,
-    totalQty: r.totalQty,
-    totalRevenue: r.totalRevenue,
-  }));
+  for (const row of rows) {
+    const entry = byVariant.get(row.variantSku) ?? {
+      variantSku: row.variantSku,
+      productName: row.productName,
+      size: row.size,
+      color: row.color,
+      totalQty: 0,
+      totalRevenue: 0,
+    };
+    entry.totalQty += row.qty;
+    entry.totalRevenue += row.lineTotal;
+    byVariant.set(row.variantSku, entry);
+  }
+
+  return Array.from(byVariant.values())
+    .sort((a, b) => b.totalQty - a.totalQty)
+    .slice(0, limit);
 }

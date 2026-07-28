@@ -1,9 +1,9 @@
-import { Types } from "mongoose";
+
 
 // ─── Common ────────────────────────────────────────────────────────────────
 
 export interface MongoDocument {
-  _id: Types.ObjectId | string;
+  _id: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -71,7 +71,7 @@ export interface ProductVariant {
 
 export interface Product extends MongoDocument {
   name: string;
-  categoryId: Types.ObjectId | string;
+  categoryId: string;
   category?: Category;
   model?: string; // heel model name, e.g. "Stiletto 3-inch"
   material?: string;
@@ -87,7 +87,7 @@ export type SaleStatus = "paid" | "partial" | "unpaid";
 export type PaymentMethod = "cash" | "bank";
 
 export interface SaleItem {
-  productId: Types.ObjectId | string;
+  productId: string;
   productName: string; // snapshotted name at time of sale
   variantSku: string;
   size: string;
@@ -101,7 +101,7 @@ export interface SaleItem {
 
 export interface Sale extends MongoDocument {
   invoiceNumber: string; // e.g. "INV-2026-0001"
-  customerId: Types.ObjectId | string;
+  customerId: string;
   customer?: Customer;
   items: SaleItem[];
   subtotal: number; // PAISA — sum of lineTotals
@@ -120,7 +120,7 @@ export interface Sale extends MongoDocument {
 // ─── Purchase ──────────────────────────────────────────────────────────────
 
 export interface PurchaseItem {
-  productId: Types.ObjectId | string;
+  productId: string;
   productName: string;
   variantSku: string;
   qty: number;
@@ -131,7 +131,7 @@ export interface PurchaseItem {
 export type PurchaseStatus = "paid" | "partial" | "unpaid";
 
 export interface Purchase extends MongoDocument {
-  supplierId: Types.ObjectId | string;
+  supplierId: string;
   supplier?: Supplier;
   items: PurchaseItem[];
   grandTotal: number; // PAISA
@@ -146,7 +146,7 @@ export interface Purchase extends MongoDocument {
 // ─── Expense ───────────────────────────────────────────────────────────────
 
 export interface Expense extends MongoDocument {
-  categoryId: Types.ObjectId | string;
+  categoryId: string;
   category?: ExpenseCategory;
   description: string;
   amount: number; // PAISA
@@ -171,13 +171,15 @@ export interface LedgerEntry extends MongoDocument {
   date: Date;
   type: LedgerEntryType;
   referenceType: LedgerReferenceType;
-  referenceId?: Types.ObjectId | string;
+  referenceId?: string;
   debit: number; // PAISA
   credit: number; // PAISA
   runningBalance: number; // PAISA — maintained at write time for fast ledger display
-  party?: Types.ObjectId | string; // customerId or supplierId, null for cash/expense
+  party?: string; // customerId or supplierId, null for cash/expense
   partyType: LedgerPartyType;
   notes?: string;
+  /** Product name/SKU/qty for entries backed by a sale or purchase invoice. */
+  items?: { productName: string; variantSku: string; qty: number }[];
 }
 
 // ─── Stock Movement ────────────────────────────────────────────────────────
@@ -190,12 +192,12 @@ export type StockMovementType =
   | "return_purchase";
 
 export interface StockMovement extends MongoDocument {
-  productId: Types.ObjectId | string;
+  productId: string;
   variantSku: string;
   type: StockMovementType;
   delta: number; // positive = stock added, negative = stock removed
   resultingBalance: number; // stock level after this movement
-  referenceId?: Types.ObjectId | string;
+  referenceId?: string;
   reason?: string; // required for "adjustment" type
 }
 

@@ -1,40 +1,76 @@
-import connectDB from "@/lib/db";
-import { SupplierModel } from "@/models/supplier.model";
-import { PurchaseModel } from "@/models/purchase.model";
-import { LedgerEntryModel } from "@/models/ledger-entry.model";
-import { Types } from "mongoose";
+import { db } from "@/lib/db";
+import { suppliers, ledgerEntries } from "@/lib/schema";
+import { and, count, desc, eq, like, or, asc, sql } from "drizzle-orm";
 import { toPaisa } from "@/lib/currency";
 import { businessError } from "@/lib/error-handler";
+import { createLedgerEntry } from "./ledger.service";
 import {
   SupplierCreateInput,
   SupplierUpdateInput,
 } from "@/utils/zod-schemas";
 
+function withId<T extends { id: number }>(row: T) {
+  return { ...row, _id: String(row.id) };
+}
+
 export async function createSupplier(input: SupplierCreateInput) {
-  await connectDB();
-  return SupplierModel.create({
-    ...input,
-    openingBalance: toPaisa(input.openingBalance ?? 0),
+  const openingBalancePaisa = toPaisa(input.openingBalance ?? 0);
+
+  const supplier = await db.transaction(async (tx) => {
+    const [supplier] = await tx
+      .insert(suppliers)
+      .values({
+        ...input,
+        openingBalance: openingBalancePaisa,
+      })
+      .returning();
+
+    // Post the opening balance to the supplier ledger so outstanding-balance
+    // calculations (which read only the ledger) reflect it from day one.
+    if (openingBalancePaisa !== 0) {
+      await createLedgerEntry({
+        date: new Date(),
+        referenceType: "opening_balance",
+        referenceId: supplier.id,
+        debit: openingBalancePaisa < 0 ? -openingBalancePaisa : 0,
+        credit: openingBalancePaisa > 0 ? openingBalancePaisa : 0,
+        party: supplier.id,
+        partyType: "supplier",
+        notes: "Opening balance",
+        tx,
+      });
+    }
+
+    return supplier;
   });
+
+  return withId(supplier);
 }
 
 export async function updateSupplier(id: string, input: SupplierUpdateInput) {
-  await connectDB();
   const update: Record<string, unknown> = { ...input };
   if (input.openingBalance !== undefined) {
     update.openingBalance = toPaisa(input.openingBalance);
   }
-  const supplier = await SupplierModel.findByIdAndUpdate(id, update, {
-    new: true,
-    runValidators: true,
-  });
+  update.updatedAt = new Date();
+
+  const [supplier] = await db
+    .update(suppliers)
+    .set(update)
+    .where(eq(suppliers.id, Number(id)))
+    .returning();
+
   if (!supplier) businessError("Supplier not found");
-  return supplier;
+  return withId(supplier);
 }
 
 export async function softDeleteSupplier(id: string) {
-  await connectDB();
-  return SupplierModel.findByIdAndUpdate(id, { isActive: false }, { new: true });
+  const [supplier] = await db
+    .update(suppliers)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(eq(suppliers.id, Number(id)))
+    .returning();
+  return supplier ? withId(supplier) : null;
 }
 
 export async function listSuppliers(params: {
@@ -45,7 +81,6 @@ export async function listSuppliers(params: {
   sortOrder?: "asc" | "desc";
   includeInactive?: boolean;
 }) {
-  await connectDB();
   const {
     page = 1,
     limit = 20,
@@ -55,77 +90,84 @@ export async function listSuppliers(params: {
     includeInactive = false,
   } = params;
 
-  const query: Record<string, unknown> = {};
-  if (!includeInactive) query.isActive = true;
+  const conditions = [];
+  if (!includeInactive) conditions.push(eq(suppliers.isActive, true));
   if (search) {
-    query.$or = [
-      { name: { $regex: search, $options: "i" } },
-      { phone: { $regex: search, $options: "i" } },
-    ];
+    conditions.push(
+      or(like(suppliers.name, `%${search}%`), like(suppliers.phone, `%${search}%`))
+    );
   }
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const sort: Record<string, 1 | -1> = {
-    [sortBy]: sortOrder === "asc" ? 1 : -1,
-  };
+  const sortColumn =
+    (suppliers as unknown as Record<string, any>)[sortBy] ?? suppliers.createdAt;
+  const orderFn = sortOrder === "asc" ? asc : desc;
 
-  const [suppliers, total] = await Promise.all([
-    SupplierModel.find(query)
-      .sort(sort)
-      .skip((page - 1) * limit)
+  const [rows, [{ value: total }]] = await Promise.all([
+    db
+      .select()
+      .from(suppliers)
+      .where(where)
+      .orderBy(orderFn(sortColumn))
       .limit(limit)
-      .lean(),
-    SupplierModel.countDocuments(query),
+      .offset((page - 1) * limit),
+    db.select({ value: count() }).from(suppliers).where(where),
   ]);
 
-  return { suppliers, total, page, limit };
+  return { suppliers: rows.map(withId), total, page, limit };
 }
 
 export async function getSupplierById(id: string) {
-  await connectDB();
-  return SupplierModel.findById(id).lean();
+  const [supplier] = await db
+    .select()
+    .from(suppliers)
+    .where(eq(suppliers.id, Number(id)));
+  return supplier ? withId(supplier) : null;
 }
 
 export async function getSupplierBalance(supplierId: string): Promise<number> {
-  await connectDB();
-  const lastEntry = await LedgerEntryModel.findOne(
-    { party: new Types.ObjectId(supplierId), partyType: "supplier" },
-    { runningBalance: 1 },
-    { sort: { createdAt: -1 } }
-  ).lean();
+  const [lastEntry] = await db
+    .select({ runningBalance: ledgerEntries.runningBalance })
+    .from(ledgerEntries)
+    .where(
+      and(
+        eq(ledgerEntries.party, Number(supplierId)),
+        eq(ledgerEntries.partyType, "supplier")
+      )
+    )
+    .orderBy(desc(ledgerEntries.createdAt))
+    .limit(1);
   // runningBalance: positive = we owe supplier
   return lastEntry?.runningBalance ?? 0;
 }
 
 export async function getSupplierOutstandingBalances() {
-  await connectDB();
-  const result = await LedgerEntryModel.aggregate([
-    { $match: { partyType: "supplier" } },
-    { $sort: { party: 1, createdAt: -1 } },
-    {
-      $group: {
-        _id: "$party",
-        latestBalance: { $first: "$runningBalance" },
-      },
-    },
-    { $match: { latestBalance: { $gt: 0 } } },
-    {
-      $lookup: {
-        from: "suppliers",
-        localField: "_id",
-        foreignField: "_id",
-        as: "supplier",
-      },
-    },
-    { $unwind: "$supplier" },
-    {
-      $project: {
-        supplierId: "$_id",
-        supplierName: "$supplier.name",
-        phone: "$supplier.phone",
-        outstandingBalance: "$latestBalance",
-      },
-    },
-    { $sort: { outstandingBalance: -1 } },
-  ]);
-  return result;
+  const latestPerParty = db
+    .select({
+      party: ledgerEntries.party,
+      runningBalance: ledgerEntries.runningBalance,
+      rn: sql<number>`row_number() over (partition by ${ledgerEntries.party} order by ${ledgerEntries.createdAt} desc)`.as(
+        "rn"
+      ),
+    })
+    .from(ledgerEntries)
+    .where(eq(ledgerEntries.partyType, "supplier"))
+    .as("latest");
+
+  const rows = await db
+    .select({
+      supplierId: suppliers.id,
+      supplierName: suppliers.name,
+      phone: suppliers.phone,
+      outstandingBalance: latestPerParty.runningBalance,
+    })
+    .from(latestPerParty)
+    .innerJoin(suppliers, eq(suppliers.id, latestPerParty.party))
+    .where(and(eq(latestPerParty.rn, 1), sql`${latestPerParty.runningBalance} > 0`))
+    .orderBy(desc(latestPerParty.runningBalance));
+
+  return rows.map((r) => ({
+    ...r,
+    supplierId: String(r.supplierId),
+  }));
 }

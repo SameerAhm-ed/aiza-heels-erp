@@ -84,7 +84,7 @@ export default function ProductDetailPage({
 
       <PageHeader
         title={productData.name}
-        description={`Category: ${productData.category?.name || "General"} • Model: ${productData.model || "N/A"} • Material: ${productData.material || "N/A"}`}
+        description={`Category: ${(productData as any).categoryId?.name || "General"} • Model: ${productData.model || "N/A"} • Material: ${productData.material || "N/A"}`}
       />
 
       {/* Variants & Pricing Overview Cards */}
