@@ -94,7 +94,7 @@ export default function DashboardPage() {
       {/* 6 Top KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {/* Today's Sales */}
-        <Card className="stat-teal text-white shadow-md">
+        <Card className="stat-teal text-white shadow-md min-w-0">
           <CardHeader className="p-4 pb-1">
             <CardTitle className="text-[11px] font-semibold uppercase tracking-wider opacity-90">
               Today's Sales
@@ -104,7 +104,10 @@ export default function DashboardPage() {
             {isLoading ? (
               <Skeleton className="h-7 w-24 bg-white/20" />
             ) : (
-              <div className="text-xl font-bold font-mono">
+              <div
+                className="text-xl font-bold font-mono truncate"
+                title={formatPaisaAsPKR(stats?.todaySales ?? 0)}
+              >
                 {formatPaisaAsPKR(stats?.todaySales ?? 0)}
               </div>
             )}
@@ -113,7 +116,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Today's Expenses */}
-        <Card className="stat-amber text-white shadow-md">
+        <Card className="stat-amber text-white shadow-md min-w-0">
           <CardHeader className="p-4 pb-1">
             <CardTitle className="text-[11px] font-semibold uppercase tracking-wider opacity-90">
               Today's Expenses
@@ -123,7 +126,10 @@ export default function DashboardPage() {
             {isLoading ? (
               <Skeleton className="h-7 w-24 bg-white/20" />
             ) : (
-              <div className="text-xl font-bold font-mono">
+              <div
+                className="text-xl font-bold font-mono truncate"
+                title={formatPaisaAsPKR(stats?.todayExpenses ?? 0)}
+              >
                 {formatPaisaAsPKR(stats?.todayExpenses ?? 0)}
               </div>
             )}
@@ -132,7 +138,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Cash in Hand */}
-        <Card className="stat-green text-white shadow-md">
+        <Card className="stat-green text-white shadow-md min-w-0">
           <CardHeader className="p-4 pb-1">
             <CardTitle className="text-[11px] font-semibold uppercase tracking-wider opacity-90">
               Cash in Hand
@@ -142,7 +148,10 @@ export default function DashboardPage() {
             {isLoading ? (
               <Skeleton className="h-7 w-24 bg-white/20" />
             ) : (
-              <div className="text-xl font-bold font-mono">
+              <div
+                className="text-xl font-bold font-mono truncate"
+                title={formatPaisaAsPKR(stats?.cashInHand ?? 0)}
+              >
                 {formatPaisaAsPKR(stats?.cashInHand ?? 0)}
               </div>
             )}
@@ -151,7 +160,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Outstanding Receivables */}
-        <Card className="stat-red text-white shadow-md">
+        <Card className="stat-red text-white shadow-md min-w-0">
           <CardHeader className="p-4 pb-1">
             <CardTitle className="text-[11px] font-semibold uppercase tracking-wider opacity-90">
               Receivables
@@ -161,7 +170,10 @@ export default function DashboardPage() {
             {isLoading ? (
               <Skeleton className="h-7 w-24 bg-white/20" />
             ) : (
-              <div className="text-xl font-bold font-mono">
+              <div
+                className="text-xl font-bold font-mono truncate"
+                title={formatPaisaAsPKR(stats?.outstandingReceivables ?? 0)}
+              >
                 {formatPaisaAsPKR(stats?.outstandingReceivables ?? 0)}
               </div>
             )}
@@ -170,7 +182,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Monthly Revenue */}
-        <Card className="border bg-card shadow-sm">
+        <Card className="border bg-card shadow-sm min-w-0">
           <CardHeader className="p-4 pb-1">
             <CardTitle className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
               Monthly Revenue
@@ -180,7 +192,10 @@ export default function DashboardPage() {
             {isLoading ? (
               <Skeleton className="h-7 w-24" />
             ) : (
-              <div className="text-xl font-bold font-mono text-primary">
+              <div
+                className="text-xl font-bold font-mono text-primary truncate"
+                title={formatPaisaAsPKR(stats?.monthlyRevenue ?? 0)}
+              >
                 {formatPaisaAsPKR(stats?.monthlyRevenue ?? 0)}
               </div>
             )}
@@ -189,7 +204,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Monthly Expenses */}
-        <Card className="border bg-card shadow-sm">
+        <Card className="border bg-card shadow-sm min-w-0">
           <CardHeader className="p-4 pb-1">
             <CardTitle className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
               Monthly Expenses
@@ -199,7 +214,10 @@ export default function DashboardPage() {
             {isLoading ? (
               <Skeleton className="h-7 w-24" />
             ) : (
-              <div className="text-xl font-bold font-mono text-rose-600 dark:text-rose-400">
+              <div
+                className="text-xl font-bold font-mono text-rose-600 dark:text-rose-400 truncate"
+                title={formatPaisaAsPKR(stats?.monthlyExpenses ?? 0)}
+              >
                 {formatPaisaAsPKR(stats?.monthlyExpenses ?? 0)}
               </div>
             )}
